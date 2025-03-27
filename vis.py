@@ -35,7 +35,7 @@ import numpy as np
 df = pd.read_csv("TutorialData.csv", delimiter=";")
 
 # Filter the DataFrame for the KELP product
-product = 'KELP'
+product = 'RAINFOREST_RESIN'
 product_df = df[df['product'] == product].copy()
 
 # Define moving average windows (e.g., 10 for short-term and 30 for long-term)
@@ -45,7 +45,7 @@ long_window = 100
 # Compute the short-term and long-term moving averages using the midpoint price
 product_df['SMA_short'] = product_df['mid_price'].rolling(window=short_window).mean()
 product_df['SMA_long'] = product_df['mid_price'].rolling(window=long_window).mean()
-
+print(product_df['mid_price'].mean())
 # Drop rows with NaN values (from rolling calculations)
 plot_df = product_df.dropna(subset=['SMA_short', 'SMA_long'])
 
