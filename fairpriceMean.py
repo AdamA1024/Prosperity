@@ -14,21 +14,25 @@ class Trader:
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
+            print(f"position for {product} is {state.position.get(product, 0)}")
             acceptable_prices={"KELP": 2019, "RAINFOREST_RESIN": 10000}
-           # print("Acceptable price : " + str(acceptable_price))
+            current_pos = state.position.get(product, 0)
+            can_sell = max(0, 50 + current_pos)   
+            can_buy = max(0, 50 - current_pos)
+            # print("Acceptable price : " + str(acceptable_price))
             #print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
     
             if len(order_depth.sell_orders) != 0:
                 best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                 if int(best_ask) < acceptable_prices[product]:
                     print("BUY", str(-best_ask_amount) + "x", best_ask)
-                    orders.append(Order(product, best_ask, -best_ask_amount))
+                    orders.append(Order(product, best_ask, -min(best_ask_amount, can_buy)))
     
             if len(order_depth.buy_orders) != 0:
                 best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
                 if int(best_bid) > acceptable_prices[product]:
                     print("SELL", str(best_bid_amount) + "x", best_bid)
-                    orders.append(Order(product, best_bid, -best_bid_amount))
+                    orders.append(Order(product, best_bid, -min(best_bid_amount, can_sell)))
             
             result[product] = orders
     
