@@ -1,7 +1,7 @@
 import json
 from typing import Any, List
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
-
+import math
 
 class Logger:
     def __init__(self) -> None:
@@ -133,32 +133,48 @@ class Trader:
             current_pos = state.position.get(product, 0)
             can_sell = max(0, 50 + current_pos)   
             can_buy = max(0, 50 - current_pos)
+            currentSpreadRR=[0 , math.inf]
             # logger.print("Acceptable price : " + str(acceptable_price))
             #logger.print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
             if product=="RAINFOREST_RESIN":
                 if len(order_depth.sell_orders) != 0:
                     best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-                    if int(best_ask) < acceptable_prices[product]:
+                    if int(best_ask) < acceptable_prices[product]: #LOGIC TO EXECUTE ARBITRAGE BY BUYING BELOW FAIR VALUE
                         logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
-                        orders.append(Order(product, best_ask, -min(best_ask_amount, can_buy)))
-        
+                        orders.append(Order(product, best_ask, -max(best_ask_amount, -can_buy))) #e.g. if bestaskamount is -20 and we can buy 10, then -max(-20, -10) = 10
+                        
+                    #LOGIC TO UNDERCUT THE BEST ASK (MM)    
+                    elif int(best_ask)<currentSpreadRR[1] and int(best_ask)>acceptable_prices[product]+1: 
+                            logger.print("SELL", str(-5) + "x", best_ask-1)
+                            orders.append(Order(product, best_ask-1, -min(15, can_sell)))
+                            currentSpreadRR[1]=int(best_ask-1)
+                            
                 if len(order_depth.buy_orders) != 0:
                     best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-                    if int(best_bid) > acceptable_prices[product]:
+                    if int(best_bid) > acceptable_prices[product]: #LOGIC TO EXECUTE ARBITRAGE BY SELLING ABOVE FAIR VALUE
                         logger.print("SELL", str(best_bid_amount) + "x", best_bid)
                         orders.append(Order(product, best_bid, -min(best_bid_amount, can_sell)))
+                        
+                    #LOGIC TO UNDERCUT THE BEST BID (MM)
+                    elif int(best_bid)>currentSpreadRR[0] and int(best_bid)<acceptable_prices[product]-1: 
+                            logger.print("BUY", str(5) + "x", best_bid+1)
+                            orders.append(Order(product, best_bid+1, min(15, can_buy)))
+                            currentSpreadRR[0]=int(best_bid+1)  
+                        
             elif product=="KELP":
                 if len(order_depth.sell_orders) != 0:
                     best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                     if int(best_ask) < acceptable_prices[product]-2:
                         logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
                         orders.append(Order(product, best_ask, -min(best_ask_amount, can_buy)))
+                        logger.print(best_ask_amount)
         
                 if len(order_depth.buy_orders) != 0:
                     best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
                     if int(best_bid) > acceptable_prices[product]+2:
                         logger.print("SELL", str(best_bid_amount) + "x", best_bid)
                         orders.append(Order(product, best_bid, -min(best_bid_amount, can_sell)))
+                        logger.print(best_bid_amount)
             result[product] = orders
     
     
