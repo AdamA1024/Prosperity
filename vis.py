@@ -37,7 +37,10 @@ df = pd.read_csv("TutorialData.csv", delimiter=";")
 # Filter the DataFrame for the KELP product
 product = 'RAINFOREST_RESIN'
 product_df = df[df['product'] == product].copy()
-
+print(product_df['bid_price_1'].min())
+print(product_df['bid_price_1'].max())
+print(product_df['ask_price_1'].min())
+print(product_df['ask_price_1'].max())
 # Define moving average windows (e.g., 10 for short-term and 30 for long-term)
 short_window = 30
 long_window = 100

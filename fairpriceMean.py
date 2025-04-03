@@ -133,21 +133,37 @@ class Trader:
             current_pos = state.position.get(product, 0)
             can_sell = max(0, 50 + current_pos)   
             can_buy = max(0, 50 - current_pos)
-            currentSpreadRR=[0 , math.inf]
-            # logger.print("Acceptable price : " + str(acceptable_price))
-            #logger.print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
+
             if product=="RAINFOREST_RESIN":
                 if len(order_depth.sell_orders) != 0:
                     best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                     if int(best_ask) < acceptable_prices[product]: #LOGIC TO EXECUTE ARBITRAGE BY BUYING BELOW FAIR VALUE
                         logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
                         orders.append(Order(product, best_ask, -max(best_ask_amount, -can_buy))) #e.g. if bestaskamount is -20 and we can buy 10, then -max(-20, -10) = 10
-                        
-                    #LOGIC TO UNDERCUT THE BEST ASK (MM)    
-                    elif int(best_ask)<currentSpreadRR[1] and int(best_ask)>acceptable_prices[product]+1: 
-                            logger.print("SELL", str(-5) + "x", best_ask-1)
-                            orders.append(Order(product, best_ask-1, -min(15, can_sell)))
-                            currentSpreadRR[1]=int(best_ask-1)
+
+                    asks_above_fair = [
+                        price
+                        for price in order_depth.sell_orders.keys()
+                        if price > 10000 + 1
+                    ]
+                    bids_below_fair = [
+                        price
+                        for price in order_depth.buy_orders.keys()
+                        if price < 10000 - 1
+                    ]
+
+                    best_ask_above_fair = min(asks_above_fair) if len(asks_above_fair) > 0 else None
+                    best_bid_below_fair = max(bids_below_fair) if len(bids_below_fair) > 0 else None
+
+                    #LOGIC TO MM THE BEST ASK    
+                    if int(best_ask_above_fair)-acceptable_prices[product]==2:
+                        #This is a case like 10002 where we may as well just join onto that order rather than try and undercut it.
+                        logger.print("SELL", str(-5) + "x", best_ask_above_fair)
+                        orders.append(Order(product, best_ask_above_fair, -min(15, can_sell)))
+                    else: 
+                        #This is a case like 10003 or higher where we can undercut the best ask by 1.
+                        logger.print("SELL", str(-5) + "x", best_ask_above_fair-1)
+                        orders.append(Order(product, best_ask_above_fair-1, -min(15, can_sell)))
                             
                 if len(order_depth.buy_orders) != 0:
                     best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
@@ -155,11 +171,15 @@ class Trader:
                         logger.print("SELL", str(best_bid_amount) + "x", best_bid)
                         orders.append(Order(product, best_bid, -min(best_bid_amount, can_sell)))
                         
-                    #LOGIC TO UNDERCUT THE BEST BID (MM)
-                    elif int(best_bid)>currentSpreadRR[0] and int(best_bid)<acceptable_prices[product]-1: 
-                            logger.print("BUY", str(5) + "x", best_bid+1)
-                            orders.append(Order(product, best_bid+1, min(15, can_buy)))
-                            currentSpreadRR[0]=int(best_bid+1)  
+                    #LOGIC TO MM THE BEST BID 
+                    if acceptable_prices[product]-int(best_bid_below_fair)==2:
+                        #This is a case like 9998 where we may as well just join onto that order rather than try and undercut it.
+                        logger.print("BUY", str(5) + "x", best_bid_below_fair)
+                        orders.append(Order(product, best_bid_below_fair, min(15, can_buy)))
+                    else:
+                        #This is a case like 9997 or lower where we can improve the best bid by 1.
+                        logger.print("BUY", str(5) + "x", best_bid_below_fair+1)
+                        orders.append(Order(product, best_bid_below_fair+1, min(15, can_buy)))
                         
             elif product=="KELP":
                 if len(order_depth.sell_orders) != 0:
