@@ -1,3 +1,4 @@
+import jsonpickle
 import json
 from typing import Any, List
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
@@ -119,12 +120,55 @@ class Logger:
 
 logger = Logger()
 class Trader:
+    def KELP_fair_value(self, order_depth: OrderDepth, traderObject) -> float:
+        if len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders) != 0:
+            best_ask = min(order_depth.sell_orders.keys())
+            best_bid = max(order_depth.buy_orders.keys())
+            filtered_ask = [
+                price
+                for price in order_depth.sell_orders.keys()
+                if abs(order_depth.sell_orders[price])
+                >= 15
+            ]
+            filtered_bid = [
+                price
+                for price in order_depth.buy_orders.keys()
+                if abs(order_depth.buy_orders[price])
+                >= 15
+            ]
+            mm_ask = min(filtered_ask) if len(filtered_ask) > 0 else None
+            mm_bid = max(filtered_bid) if len(filtered_bid) > 0 else None
+            if mm_ask == None or mm_bid == None: #if there is nothing in the filtered bid asks
+                if traderObject.get("KELP_last_price", None) == None: #if we have no last price, we can use the best bid and ask to calculate a fair value
+                    mmmid_price = (best_ask + best_bid) / 2 
+                else: 
+                    mmmid_price = traderObject["KELP_last_price"] #if we have a last price, we can use that to calculate a fair value
+            else: 
+                mmmid_price = (mm_ask + mm_bid) / 2 #NORMAL CONDITIONS: we can use the average of the filtered bid and ask to calculate a fair value
+
+            if traderObject.get("KELP_last_price", None) != None:
+                last_price = traderObject["KELP_last_price"]
+                last_returns = (mmmid_price - last_price) / last_price #1 step percentage return
+                pred_returns = (
+                    last_returns * -0.229
+                )
+                fair = mmmid_price + (mmmid_price * pred_returns)
+            else:
+                fair = mmmid_price
+            traderObject["KELP_last_price"] = mmmid_price
+            return fair
+        return None
     
     def run(self, state: TradingState):
         # Only method required. It takes all buy and sell orders for all symbols as an input, and outputs a list of orders to be sent
         logger.print("traderData: " + state.traderData)
         logger.print("Observations: " + str(state.observations))
+        traderObject = {}
+        if state.traderData != None and state.traderData != "":
+            traderObject = jsonpickle.decode(state.traderData)
+
         result = {}
+
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
@@ -135,34 +179,35 @@ class Trader:
             can_buy = max(0, 50 - current_pos)
 
             if product=="RAINFOREST_RESIN":
+                # Filter out any bid asks within 1 tick of fair value. 
+                asks_above_fair = [
+                    price
+                    for price in order_depth.sell_orders.keys()
+                    if price > 10000 + 1
+                ]
+                bids_below_fair = [
+                    price
+                    for price in order_depth.buy_orders.keys()
+                    if price < 10000 - 1
+                ]
+                
+                best_ask_above_fair = min(asks_above_fair) if len(asks_above_fair) > 0 else None
+                best_bid_below_fair = max(bids_below_fair) if len(bids_below_fair) > 0 else None
+
                 if len(order_depth.sell_orders) != 0:
                     best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                     if int(best_ask) < acceptable_prices[product]: #LOGIC TO EXECUTE ARBITRAGE BY BUYING BELOW FAIR VALUE
                         logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
                         orders.append(Order(product, best_ask, -max(best_ask_amount, -can_buy))) #e.g. if bestaskamount is -20 and we can buy 10, then -max(-20, -10) = 10
 
-                    asks_above_fair = [
-                        price
-                        for price in order_depth.sell_orders.keys()
-                        if price > 10000 + 1
-                    ]
-                    bids_below_fair = [
-                        price
-                        for price in order_depth.buy_orders.keys()
-                        if price < 10000 - 1
-                    ]
-
-                    best_ask_above_fair = min(asks_above_fair) if len(asks_above_fair) > 0 else None
-                    best_bid_below_fair = max(bids_below_fair) if len(bids_below_fair) > 0 else None
-
                     #LOGIC TO MM THE BEST ASK    
                     if int(best_ask_above_fair)-acceptable_prices[product]==2:
                         #This is a case like 10002 where we may as well just join onto that order rather than try and undercut it.
-                        logger.print("SELL", str(-5) + "x", best_ask_above_fair)
+                        logger.print("SELL", str(-15) + "x", best_ask_above_fair)
                         orders.append(Order(product, best_ask_above_fair, -min(15, can_sell)))
                     else: 
                         #This is a case like 10003 or higher where we can undercut the best ask by 1.
-                        logger.print("SELL", str(-5) + "x", best_ask_above_fair-1)
+                        logger.print("SELL", str(-15) + "x", best_ask_above_fair-1)
                         orders.append(Order(product, best_ask_above_fair-1, -min(15, can_sell)))
                             
                 if len(order_depth.buy_orders) != 0:
@@ -174,32 +219,54 @@ class Trader:
                     #LOGIC TO MM THE BEST BID 
                     if acceptable_prices[product]-int(best_bid_below_fair)==2:
                         #This is a case like 9998 where we may as well just join onto that order rather than try and undercut it.
-                        logger.print("BUY", str(5) + "x", best_bid_below_fair)
+                        logger.print("BUY", str(15) + "x", best_bid_below_fair)
                         orders.append(Order(product, best_bid_below_fair, min(15, can_buy)))
                     else:
                         #This is a case like 9997 or lower where we can improve the best bid by 1.
-                        logger.print("BUY", str(5) + "x", best_bid_below_fair+1)
+                        logger.print("BUY", str(15) + "x", best_bid_below_fair+1)
                         orders.append(Order(product, best_bid_below_fair+1, min(15, can_buy)))
                         
-            elif product=="KELP":
+            elif product=="KELP":        
+                logger.print(self.KELP_fair_value(order_depth, traderObject))
+
+                best_ask= None
+                best_bid= None
                 if len(order_depth.sell_orders) != 0:
                     best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-                    if int(best_ask) < acceptable_prices[product]-2:
+                    if int(best_ask) < acceptable_prices[product]-2: #LOGIC TO EXECUTE ARBITRAGE BY BUYING BELOW FAIR VALUE
                         logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
                         orders.append(Order(product, best_ask, -min(best_ask_amount, can_buy)))
                         logger.print(best_ask_amount)
-        
+
                 if len(order_depth.buy_orders) != 0:
                     best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-                    if int(best_bid) > acceptable_prices[product]+2:
+                    if int(best_bid) > acceptable_prices[product]+2: #LOGIC TO EXECUTE ARBITRAGE BY SELLING ABOVE FAIR VALUE
                         logger.print("SELL", str(best_bid_amount) + "x", best_bid)
                         orders.append(Order(product, best_bid, -min(best_bid_amount, can_sell)))
                         logger.print(best_bid_amount)
+                
+                spread=best_ask-best_bid
+                if spread !=None:
+                    if spread==1 or spread==2:
+                        #This is a case where we may as well join volume rather than try and undercut it.
+                        logger.print("BUY", str(5) + "x", best_bid)
+                        orders.append(Order(product, best_bid, min(20, can_buy)))
+                        logger.print("SELL", str(-5) + "x", best_ask)
+                        orders.append(Order(product, best_ask, -min(20, can_sell)))
+                    elif spread>2:
+                        #This is a case where we can improve the best bid by 1.
+                        logger.print("BUY", str(5) + "x", best_bid+1)
+                        orders.append(Order(product, best_bid+1, min(20, can_buy)))
+                        logger.print("SELL", str(-5) + "x", best_ask-1)
+                        orders.append(Order(product, best_ask-1, -min(20, can_sell)))
+
+
+
             result[product] = orders
     
     
-        traderData = "SAMPLE" # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
-        
+        traderData = jsonpickle.encode(traderObject)
+
         conversions = 1
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
