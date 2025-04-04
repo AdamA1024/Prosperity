@@ -120,44 +120,27 @@ class Logger:
 
 logger = Logger()
 class Trader:
-    def KELP_fair_value(self, order_depth: OrderDepth, traderObject) -> float:
-        if len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders) != 0:
-            best_ask = min(order_depth.sell_orders.keys())
-            best_bid = max(order_depth.buy_orders.keys())
-            filtered_ask = [
-                price
-                for price in order_depth.sell_orders.keys()
-                if abs(order_depth.sell_orders[price])
-                >= 15
-            ]
-            filtered_bid = [
-                price
-                for price in order_depth.buy_orders.keys()
-                if abs(order_depth.buy_orders[price])
-                >= 15
-            ]
-            mm_ask = min(filtered_ask) if len(filtered_ask) > 0 else None
-            mm_bid = max(filtered_bid) if len(filtered_bid) > 0 else None
-            if mm_ask == None or mm_bid == None: #if there is nothing in the filtered bid asks
-                if traderObject.get("KELP_last_price", None) == None: #if we have no last price, we can use the best bid and ask to calculate a fair value
-                    mmmid_price = (best_ask + best_bid) / 2 
-                else: 
-                    mmmid_price = traderObject["KELP_last_price"] #if we have a last price, we can use that to calculate a fair value
-            else: 
-                mmmid_price = (mm_ask + mm_bid) / 2 #NORMAL CONDITIONS: we can use the average of the filtered bid and ask to calculate a fair value
+    def computeMA(self, order_depth: OrderDepth, filterOrder: int, traderObject: dict) -> float:
+        if len(order_depth.buy_orders)!=0 and len(order_depth.sell_orders)!=0:
+            midprice = (min(order_depth.sell_orders.keys()) + max(order_depth.buy_orders.keys()))/2
+            if f"{filterOrder}MA" not in traderObject:
+                traderObject[f"{filterOrder}MA"] = midprice
+                traderObject[f"{filterOrder}Mps"]= []
+                traderObject[f"{filterOrder}Mps"].append(midprice)
 
-            if traderObject.get("KELP_last_price", None) != None:
-                last_price = traderObject["KELP_last_price"]
-                last_returns = (mmmid_price - last_price) / last_price #1 step percentage return
-                pred_returns = (
-                    last_returns * -0.229
-                )
-                fair = mmmid_price + (mmmid_price * pred_returns)
+            elif len(traderObject[f"{filterOrder}Mps"])<=(filterOrder-1):
+                traderObject[f"{filterOrder}Mps"].append(midprice)
+                traderObject[f"{filterOrder}MA"] = sum(traderObject[f"{filterOrder}Mps"])/len(traderObject[f"{filterOrder}Mps"])
             else:
-                fair = mmmid_price
-            traderObject["KELP_last_price"] = mmmid_price
-            return fair
-        return None
+                traderObject[f"{filterOrder}Mps"].append(midprice)
+                traderObject[f"{filterOrder}MA"] = sum(traderObject[f"{filterOrder}Mps"])/len(traderObject[f"{filterOrder}Mps"])
+                traderObject[f"{filterOrder}Mps"].pop(0)
+            
+            return traderObject[f"{filterOrder}MA"]
+        else:
+            return 0
+
+
     
     def run(self, state: TradingState):
         # Only method required. It takes all buy and sell orders for all symbols as an input, and outputs a list of orders to be sent
@@ -166,7 +149,7 @@ class Trader:
         traderObject = {}
         if state.traderData != None and state.traderData != "":
             traderObject = jsonpickle.decode(state.traderData)
-
+    
         result = {}
 
         for product in state.order_depths:
@@ -227,8 +210,8 @@ class Trader:
                         orders.append(Order(product, best_bid_below_fair+1, min(15, can_buy)))
                         
             elif product=="KELP":        
-                logger.print(self.KELP_fair_value(order_depth, traderObject))
-
+                logger.print(self.computeMA(order_depth, 5, traderObject))
+                self.computeMA(order_depth, 10, traderObject)
                 best_ask= None
                 best_bid= None
                 if len(order_depth.sell_orders) != 0:
